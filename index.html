@@ -1,0 +1,201 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S Piano</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;background:#080b12;color:white;
+ font-family:Arial,sans-serif;text-align:center;
+}
+header{padding:18px;font-size:25px;font-weight:bold}
+#status{color:#aaa;font-size:13px}
+button{
+ background:#7657ff;color:white;border:0;
+ padding:13px 22px;border-radius:12px;
+ font-size:15px;margin:12px;
+}
+#game{
+ height:55vh;position:relative;
+ margin:15px;background:#111827;
+ border-radius:18px;overflow:hidden;
+ border:1px solid #293247;
+}
+#lane{
+ position:absolute;left:50%;transform:translateX(-50%);
+ width:90px;height:100%;background:#1b2233;
+}
+#target{
+ position:absolute;bottom:30px;left:0;
+ width:100%;height:4px;background:#7657ff;
+}
+#note{
+ position:absolute;left:50%;transform:translateX(-50%);
+ width:65px;height:35px;border-radius:9px;
+ background:#a18aff;box-shadow:0 0 20px #7657ff;
+ top:-40px;display:none;
+}
+#noteName{
+ position:absolute;top:12px;left:0;width:100%;
+ font-size:24px;font-weight:bold;
+}
+#keyboard{
+ display:flex;justify-content:center;
+ height:125px;padding:5px;gap:2px;
+}
+.key{
+ flex:1;max-width:55px;background:#eee;
+ color:#111;border-radius:0 0 8px 8px;
+ position:relative;padding-top:85px;font-size:11px;
+}
+.key.black{
+ background:#252525;color:white;
+ height:75px;max-width:29px;
+ margin:0 -15px;z-index:2;padding-top:55px;
+}
+</style>
+</head>
+<body>
+
+<header>🎹 S PIANO</header>
+<div id="status">Ready to play</div>
+
+<button id="start">START PLAYING</button>
+
+<div id="game">
+ <div id="lane"></div>
+ <div id="note"></div>
+ <div id="target"></div>
+ <div id="noteName">C4</div>
+</div>
+
+<div id="keyboard">
+ <div class="key" data-note="C4">C</div>
+ <div class="key black" data-note="C#4">C#</div>
+ <div class="key" data-note="D4">D</div>
+ <div class="key black" data-note="D#4">D#</div>
+ <div class="key" data-note="E4">E</div>
+ <div class="key" data-note="F4">F</div>
+ <div class="key black" data-note="F#4">F#</div>
+ <div class="key" data-note="G4">G</div>
+ <div class="key black" data-note="G#4">G#</div>
+ <div class="key" data-note="A4">A</div>
+ <div class="key black" data-note="A#4">A#</div>
+ <div class="key" data-note="B4">B</div>
+</div>
+
+<script>
+const notes=[
+"C4","D4","E4","G4","E4","D4",
+"C4","E4","G4","A4","G4","E4"
+];
+
+let index=0;
+let audioContext,analyser,micStream;
+let running=false;
+let animation;
+
+const note=document.getElementById("note");
+const noteName=document.getElementById("noteName");
+const status=document.getElementById("status");
+const game=document.getElementById("game");
+
+function showNote(){
+ if(index>=notes.length){
+  running=false;
+  note.style.display="none";
+  status.textContent="🏆 Song completed!";
+  return;
+ }
+ noteName.textContent=notes[index];
+ note.style.display="block";
+ note.style.top="-40px";
+}
+
+function animate(){
+ if(!running)return;
+ let y=parseFloat(note.style.top||"-40");
+ y+=2;
+ if(y>game.clientHeight-75)y=-40;
+ note.style.top=y+"px";
+ animation=requestAnimationFrame(animate);
+}
+
+function frequencyToNote(freq){
+ if(!freq || freq<60 || freq>1500)return null;
+ let midi=Math.round(69+12*Math.log2(freq/440));
+ let names=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+ return names[(midi%12+12)%12]+(Math.floor(midi/12)-1);
+}
+
+function detectPitch(){
+ if(!running || !analyser)return;
+
+ const data=new Float32Array(analyser.fftSize);
+ analyser.getFloatTimeDomainData(data);
+
+ let rms=0;
+ for(let i=0;i<data.length;i++)rms+=data[i]*data[i];
+ rms=Math.sqrt(rms/data.length);
+
+ if(rms>0.012){
+  let size=data.length;
+  let bestOffset=-1,bestCorrelation=0;
+
+  for(let offset=30;offset<600;offset++){
+   let correlation=0;
+   for(let i=0;i<size-offset;i+=2){
+    correlation+=data[i]*data[i+offset];
+   }
+   correlation/=size/2;
+   if(correlation>bestCorrelation){
+    bestCorrelation=correlation;
+    bestOffset=offset;
+   }
+  }
+
+  if(bestOffset>0 && bestCorrelation>0.1){
+   let freq=audioContext.sampleRate/bestOffset;
+   let detected=frequencyToNote(freq);
+
+   if(detected===notes[index]){
+    status.textContent="✅ Correct: "+detected;
+    index++;
+    showNote();
+   }
+  }
+ }
+ requestAnimationFrame(detectPitch);
+}
+
+async function startGame(){
+ try{
+  status.textContent="Requesting microphone...";
+  micStream=await navigator.mediaDevices.getUserMedia({audio:true});
+  audioContext=new AudioContext();
+  analyser=audioContext.createAnalyser();
+  analyser.fftSize=2048;
+
+  const source=audioContext.createMediaStreamSource(micStream);
+  source.connect(analyser);
+
+  index=0;
+  running=true;
+  status.textContent="🎤 Listening... Play the falling notes!";
+  showNote();
+  animate();
+  detectPitch();
+
+ }catch(error){
+  status.textContent="Microphone permission required!";
+ }
+}
+
+document.getElementById("start").onclick=startGame;
+</script>
+</body>
+  </html>
+   
